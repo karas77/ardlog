@@ -40,15 +40,18 @@
             <header class="chat-header glass">
                 <div class="header-title">
                     <img src="logo.svg" alt="" width="36" height="36">
-                    <div>
-                        <h1 class="brand">ArdLog</h1>
+                    <div class="header-text">
+                        <h1 id="room-title" class="room-title"># Genel</h1>
                         <p id="connection-status" class="connection-status" data-state="online">🔒 Uçtan uca şifreli</p>
                     </div>
                 </div>
-                <button id="sidebar-toggle" class="pill-button" type="button" aria-controls="sidebar" aria-expanded="false">
-                    <span class="online-dot" aria-hidden="true"></span>
-                    <span id="user-count">0 çevrimiçi</span>
-                </button>
+                <div class="header-actions">
+                    <button id="room-menu-button" class="icon-button hidden" type="button" aria-label="Grup bilgisi ve davet linki" title="Davet et">👥</button>
+                    <button id="sidebar-toggle" class="pill-button" type="button" aria-controls="sidebar" aria-expanded="false">
+                        <span class="online-dot" aria-hidden="true"></span>
+                        <span id="user-count">0 çevrimiçi</span>
+                    </button>
+                </div>
             </header>
 
             <div id="message-list" class="message-list" role="log" aria-live="polite" aria-label="Mesajlar"></div>
@@ -76,15 +79,44 @@
         <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
         <aside id="sidebar" class="sidebar glass" aria-label="Oda bilgileri">
             <div class="sidebar-header">
-                <h2>Oda</h2>
+                <h2 class="brand">ArdLog</h2>
                 <button id="sidebar-close" type="button" class="icon-button close-button" aria-label="Paneli kapat">✕</button>
             </div>
+            <div class="section-header">
+                <h3>Sohbetler</h3>
+                <button id="new-group-button" type="button" class="text-button">+ Yeni grup</button>
+            </div>
+            <ul id="room-list" class="room-list"></ul>
             <h3>Aktif kullanıcılar</h3>
             <ul id="user-list" class="user-list"></ul>
             <h3>Paylaşılan dosyalar</h3>
             <ul id="file-list" class="file-list"></ul>
         </aside>
     </section>
+
+    <dialog id="group-dialog" class="dialog" aria-labelledby="group-dialog-title">
+        <form id="group-form" class="dialog-body" novalidate>
+            <h2 id="group-dialog-title">Yeni grup</h2>
+            <label id="group-name-field" class="field">
+                <span>Grup adı</span>
+                <input id="group-name-input" type="text" maxlength="40" autocomplete="off" required>
+            </label>
+            <div id="invite-section" class="invite-section hidden">
+                <p class="dialog-note">Bu linki gruba eklemek istediğin kişilere gönder. Grubun şifreleme anahtarı linkin içinde; linki bilen herkes grubu okuyabilir.</p>
+                <div class="invite-row">
+                    <input id="invite-link" type="text" readonly aria-label="Davet linki">
+                    <button id="copy-invite" type="button" class="primary-button compact">Kopyala</button>
+                </div>
+                <button id="share-invite" type="button" class="secondary-button hidden">📤 WhatsApp vb. ile paylaş</button>
+            </div>
+            <p id="group-error" class="login-error" role="alert"></p>
+            <div class="dialog-actions">
+                <button id="leave-group" type="button" class="danger-button hidden">Gruptan ayrıl</button>
+                <button id="dialog-close" type="button" class="secondary-button">Kapat</button>
+                <button id="group-submit" type="submit" class="primary-button compact">Oluştur</button>
+            </div>
+        </form>
+    </dialog>
 
     <div id="effects-layer" class="effects-layer" aria-hidden="true"></div>
     <script src="vendor/supabase.js"></script>
