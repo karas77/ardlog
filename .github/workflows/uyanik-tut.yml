@@ -1,0 +1,10 @@
+name: Supabase uyanik tut
+on:
+  schedule:
+    - cron: "0 6 */3 * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -s -o /dev/null -w "%{http_code}\n" "https://tcklglwyguodaapgnddf.supabase.co/rest/v1/messages?select=id&limit=1" -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRja2xnbHd5Z3VvZGFhcGduZGRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3MDMxMDQsImV4cCI6MjEwNjI3OTEwNH0.bXpFDdfwTAsHXMVDluSMWzEdep7uVKPpAzTdQRdqwaI"
