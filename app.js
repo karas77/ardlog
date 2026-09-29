@@ -5,6 +5,10 @@ const db = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey, 
 const FILE_BUCKET = "files";
 const ROOM_CHANNEL = "room:ardlog";
 const PRESENCE_FALLBACK_MS = 2000;
+const GENERAL_ROOM = "genel";
+const GROUP_STORAGE_KEY = "ardlog-groups-v1";
+const INVITE_PATTERN = /^#davet=([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/;
+const COPY_FEEDBACK_MS = 2000;
 const HISTORY_LIMIT = 100;
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const NEAR_BOTTOM_PX = 120;
@@ -60,6 +64,10 @@ const state = {
     lastTime: 0,
     renderQueue: Promise.resolve(),
     shownFileIds: new Set(),
+    currentRoom: GENERAL_ROOM,
+    rooms: new Map(),
+    unread: new Map(),
+    pendingInvite: null,
 };
 
 const encoder = new TextEncoder();
@@ -137,32 +145,58 @@ async function deriveKeys(password) {
     return { cryptoKey, authToken: bytesToHex(bits.slice(KEY_LENGTH)) };
 }
 
-async function encryptBytes(bytes) {
+function toBase64Url(bytes) {
+    return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(text) {
+    const base64 = text.replace(/-/g, "+").replace(/_/g, "/");
+    return base64ToBytes(base64 + "===".slice((base64.length + 3) % 4));
+}
+
+function importAesKey(rawBytes) {
+    return crypto.subtle.importKey("raw", rawBytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+function roomKey(roomId) {
+    return state.rooms.get(roomId)?.key;
+}
+
+function activeKey() {
+    return roomKey(state.currentRoom);
+}
+
+async function encryptBytes(bytes, key = activeKey()) {
     const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, state.cryptoKey, bytes));
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, bytes));
     const output = new Uint8Array(IV_LENGTH + cipher.length);
     output.set(iv);
     output.set(cipher, IV_LENGTH);
     return output;
 }
 
-async function decryptBytes(bytes) {
+async function decryptBytes(bytes, key = activeKey()) {
     const iv = bytes.subarray(0, IV_LENGTH);
-    return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, state.cryptoKey, bytes.subarray(IV_LENGTH)));
+    return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, bytes.subarray(IV_LENGTH)));
 }
 
-async function encryptText(text) {
-    return bytesToBase64(await encryptBytes(encoder.encode(text)));
+async function encryptText(text, key = activeKey()) {
+    return bytesToBase64(await encryptBytes(encoder.encode(text), key));
 }
 
-async function decryptText(base64) {
-    return decoder.decode(await decryptBytes(base64ToBytes(base64)));
+async function decryptText(base64, key = activeKey()) {
+    return decoder.decode(await decryptBytes(base64ToBytes(base64), key));
+}
+
+function eventRoom(event) {
+    return event.room_id ?? GENERAL_ROOM;
 }
 
 async function decryptEvent(event) {
+    const key = roomKey(eventRoom(event));
     if (event.type === "message") {
         try {
-            const payload = JSON.parse(await decryptText(event.content));
+            const payload = JSON.parse(await decryptText(event.content, key));
             const effect = Object.hasOwn(EFFECTS, payload.e) ? payload.e : "none";
             return { ...event, text: String(payload.t ?? ""), effect };
         } catch {
@@ -171,7 +205,7 @@ async function decryptEvent(event) {
     }
     if (event.type === "file") {
         try {
-            return { ...event, name: await decryptText(event.file_name) };
+            return { ...event, name: await decryptText(event.file_name, key) };
         } catch {
             return { ...event, name: "🔒 Çözülemeyen dosya", locked: true };
         }
@@ -202,6 +236,7 @@ function rowToEvent(row) {
         file_id: row.file_id,
         file_name: row.file_name,
         file_size: row.file_size,
+        room_id: row.room_id,
         timestamp: row.created_at,
     };
 }
@@ -264,9 +299,14 @@ async function handleLogin(event) {
         const keys = await deriveKeys(password);
         setLoginBusy(true, "Bağlanılıyor…");
         await login(keys.authToken);
-        Object.assign(state, keys, { username: name });
+        Object.assign(state, keys, { username: name, currentRoom: GENERAL_ROOM });
+        state.rooms = new Map([[GENERAL_ROOM, { id: GENERAL_ROOM, name: "Genel", key: keys.cryptoKey }]]);
         $("password-input").value = "";
+        await loadGroups();
+        renderRoomList();
+        updateRoomHeader();
         await startSession();
+        await acceptPendingInvite();
     } catch (error) {
         console.error("Giriş başarısız:", error);
         showLoginScreen(describeError(error));
@@ -289,7 +329,7 @@ function joinRoom() {
         .on("presence", { event: "sync" }, handlePresenceSync)
         .on("presence", { event: "join" }, ({ key }) => announcePresence(key, true))
         .on("presence", { event: "leave" }, ({ key }) => announcePresence(key, false))
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, ({ new: row }) => enqueueServerEvent(rowToEvent(row)))
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, ({ new: row }) => handleInsertedRow(row))
         .subscribe((status) => handleChannelStatus(channel, status));
 }
 
@@ -320,7 +360,7 @@ async function handlePresenceSync() {
 // Yeniden bağlanınca Presence herkesi tekrar "katıldı" bildirir; yalnız gerçek değişiklikleri göster.
 function announcePresence(name, joined) {
     if (!state.presenceReady || state.onlineUsers.has(name) === joined) return;
-    addMessage({ type: "system", content: `${name} ${joined ? "katıldı" : "ayrıldı"}` });
+    addMessage({ type: "system", content: `${name} ${joined ? "çevrimiçi oldu" : "çevrimdışı oldu"}` });
 }
 
 function handleChannelStatus(channel, status) {
@@ -358,7 +398,20 @@ function enqueueServerEvent(data) {
         .catch((error) => console.error("Mesaj işlenemedi:", error));
 }
 
+// Açık odanın mesajı ekrana gelir; bilinen diğer odalar için okunmamış sayısı artar.
+function handleInsertedRow(row) {
+    const event = rowToEvent(row);
+    const roomId = eventRoom(event);
+    if (roomId === state.currentRoom) {
+        enqueueServerEvent(event);
+    } else if (state.rooms.has(roomId)) {
+        state.unread.set(roomId, (state.unread.get(roomId) || 0) + 1);
+        renderRoomList();
+    }
+}
+
 function handleServerEvent(event) {
+    if (event.room_id !== undefined && eventRoom(event) !== state.currentRoom) return;
     if (event.type === "system") updateUserList(event.users || []);
     if (event.type === "file") updateFileList(event, { prepend: true });
     addMessage(event, { live: true });
@@ -375,7 +428,7 @@ async function sendMessage(event) {
     input.value = "";
     autoResize(input);
     selectEffect("none");
-    const { error } = await db.from("messages").insert({ username: state.username, content, msg_type: "text" });
+    const { error } = await db.from("messages").insert({ username: state.username, content, msg_type: "text", room_id: dbRoomId(state.currentRoom) });
     if (error) {
         console.error("Mesaj gönderilemedi:", error);
         addLocalNotice("Mesaj gönderilemedi, bağlantını kontrol et.");
@@ -392,15 +445,19 @@ async function uploadFile(file) {
     button.disabled = true;
     button.textContent = "⏳";
     try {
-        const encrypted = await encryptBytes(new Uint8Array(await file.arrayBuffer()));
+        // Yükleme sürerken oda değişebilir; oda ve anahtar baştan sabitlenir.
+        const roomId = state.currentRoom;
+        const key = activeKey();
+        const encrypted = await encryptBytes(new Uint8Array(await file.arrayBuffer()), key);
         const fileId = crypto.randomUUID();
         check(await db.storage.from(FILE_BUCKET).upload(fileId, new Blob([encrypted]), { contentType: "application/octet-stream" }));
         check(await db.from("messages").insert({
             username: state.username,
             msg_type: "file",
             file_id: fileId,
-            file_name: await encryptText(file.name),
+            file_name: await encryptText(file.name, key),
             file_size: file.size,
+            room_id: dbRoomId(roomId),
         }));
     } catch (error) {
         console.error("Yükleme hatası:", error);
@@ -423,7 +480,7 @@ async function downloadFile(file, button) {
     button.textContent = "…";
     try {
         const blob = check(await db.storage.from(FILE_BUCKET).download(file.file_id));
-        const plain = await decryptBytes(new Uint8Array(await blob.arrayBuffer()));
+        const plain = await decryptBytes(new Uint8Array(await blob.arrayBuffer()), roomKey(eventRoom(file)));
         const url = URL.createObjectURL(new Blob([plain]));
         const link = createElement("a");
         link.href = url;
@@ -444,7 +501,7 @@ async function downloadFile(file, button) {
 /* ---------- Geçmiş ve kenar çubuğu ---------- */
 
 async function loadHistory() {
-    const rows = check(await db.from("messages").select("*").order("id", { ascending: false }).limit(HISTORY_LIMIT));
+    const rows = check(await inCurrentRoom(db.from("messages").select("*")).order("id", { ascending: false }).limit(HISTORY_LIMIT));
     const events = await Promise.all(rows.reverse().map((row) => decryptEvent(rowToEvent(row))));
     $("message-list").replaceChildren();
     state.lastAuthor = null;
@@ -454,7 +511,7 @@ async function loadHistory() {
 }
 
 async function loadFiles() {
-    const rows = check(await db.from("messages").select("*").eq("msg_type", "file").order("id", { ascending: false }));
+    const rows = check(await inCurrentRoom(db.from("messages").select("*")).eq("msg_type", "file").order("id", { ascending: false }));
     const files = await Promise.all(rows.map((row) => decryptEvent(rowToEvent(row))));
     $("file-list").replaceChildren();
     state.shownFileIds.clear();
@@ -718,6 +775,226 @@ function toggleEffectMenu(open) {
     if (shouldOpen) menu.querySelector(`[data-effect="${state.selectedEffect}"]`)?.focus();
 }
 
+/* ---------- Gruplar ---------- */
+
+function dbRoomId(roomId) {
+    return roomId === GENERAL_ROOM ? null : roomId;
+}
+
+function inCurrentRoom(query) {
+    return state.currentRoom === GENERAL_ROOM ? query.is("room_id", null) : query.eq("room_id", state.currentRoom);
+}
+
+function inviteLink(room) {
+    return `${window.location.origin}${window.location.pathname}#davet=${room.id}.${room.rawKey}`;
+}
+
+// Grup anahtarları cihazda saklanır ama oda şifresinden türetilen anahtarla şifrelenmiş olarak.
+async function saveGroups() {
+    const groups = [...state.rooms.values()]
+        .filter((room) => room.id !== GENERAL_ROOM)
+        .map((room) => ({ id: room.id, key: room.rawKey }));
+    try {
+        localStorage.setItem(GROUP_STORAGE_KEY, await encryptText(JSON.stringify(groups), roomKey(GENERAL_ROOM)));
+    } catch (error) {
+        console.warn("Gruplar bu cihaza kaydedilemedi:", error);
+    }
+}
+
+async function readStoredGroups() {
+    try {
+        const stored = localStorage.getItem(GROUP_STORAGE_KEY);
+        return stored ? JSON.parse(await decryptText(stored, roomKey(GENERAL_ROOM))) : [];
+    } catch (error) {
+        console.warn("Kayıtlı gruplar okunamadı:", error);
+        return [];
+    }
+}
+
+// Grup satırını çeker ve adını anahtarla çözer; anahtar yanlışsa hata fırlatır.
+async function openGroup(id, rawKey) {
+    const key = await importAesKey(fromBase64Url(rawKey));
+    const rows = check(await db.from("rooms").select("id, name_cipher").eq("id", id));
+    if (!rows.length) throw new Error("Grup bulunamadı.");
+    const room = { id, rawKey, key, name: await decryptText(rows[0].name_cipher, key) };
+    state.rooms.set(id, room);
+    return room;
+}
+
+async function loadGroups() {
+    const stored = await readStoredGroups();
+    await Promise.allSettled(stored.map((group) => openGroup(group.id, group.key)));
+}
+
+async function createGroup(name) {
+    const rawBytes = crypto.getRandomValues(new Uint8Array(KEY_LENGTH));
+    const key = await importAesKey(rawBytes);
+    const rows = check(await db.from("rooms").insert({ name_cipher: await encryptText(name, key) }).select("id"));
+    const room = { id: rows[0].id, rawKey: toBase64Url(rawBytes), key, name };
+    state.rooms.set(room.id, room);
+    await saveGroups();
+    await switchRoom(room.id);
+    return room;
+}
+
+async function leaveGroup(roomId) {
+    state.rooms.delete(roomId);
+    state.unread.delete(roomId);
+    await saveGroups();
+    await switchRoom(GENERAL_ROOM);
+}
+
+function readInviteFromUrl() {
+    const match = window.location.hash.match(INVITE_PATTERN);
+    if (!match) return;
+    state.pendingInvite = { id: match[1], rawKey: match[2] };
+    // Anahtar adres çubuğunda ve geçmişte kalmasın.
+    history.replaceState(null, "", window.location.pathname);
+}
+
+async function acceptPendingInvite() {
+    const invite = state.pendingInvite;
+    state.pendingInvite = null;
+    if (!invite) return;
+    try {
+        const room = state.rooms.get(invite.id) || await openGroup(invite.id, invite.rawKey);
+        await saveGroups();
+        await switchRoom(room.id);
+        addLocalNotice(`"${room.name}" grubuna katıldın.`);
+    } catch (error) {
+        console.error("Davet açılamadı:", error);
+        addLocalNotice("Davet linki geçersiz ya da grup silinmiş.");
+    }
+}
+
+async function switchRoom(roomId) {
+    state.currentRoom = roomId;
+    state.unread.delete(roomId);
+    renderRoomList();
+    updateRoomHeader();
+    if (MOBILE_QUERY.matches) setSidebarOpen(false);
+    try {
+        await Promise.all([loadHistory(), loadFiles()]);
+    } catch (error) {
+        console.error("Oda yüklenemedi:", error);
+        addLocalNotice("Sohbet yüklenemedi, bağlantını kontrol et.");
+    }
+}
+
+function updateRoomHeader() {
+    const room = state.rooms.get(state.currentRoom);
+    $("room-title").textContent = room.id === GENERAL_ROOM ? "# Genel" : room.name;
+    $("room-menu-button").classList.toggle("hidden", room.id === GENERAL_ROOM);
+    document.title = `${room.name} · ArdLog`;
+}
+
+function createRoomButton(room) {
+    const isActive = room.id === state.currentRoom;
+    const button = createElement("button", `room-item${isActive ? " active" : ""}`);
+    button.type = "button";
+    if (isActive) button.setAttribute("aria-current", "true");
+    const icon = createElement("span", "room-icon", room.id === GENERAL_ROOM ? "#" : [...room.name][0].toUpperCase());
+    icon.style.setProperty("--hue", usernameHue(room.id));
+    button.append(icon, createElement("span", "room-name", room.name));
+    const unread = state.unread.get(room.id);
+    if (unread) {
+        const badge = createElement("span", "unread-badge", unread > 99 ? "99+" : String(unread));
+        badge.setAttribute("aria-label", `${unread} okunmamış mesaj`);
+        button.appendChild(badge);
+    }
+    button.addEventListener("click", () => switchRoom(room.id));
+    return button;
+}
+
+function renderRoomList() {
+    const list = $("room-list");
+    list.replaceChildren();
+    state.rooms.forEach((room) => {
+        const item = createElement("li");
+        item.appendChild(createRoomButton(room));
+        list.appendChild(item);
+    });
+    const hasUnread = [...state.unread.values()].some((count) => count > 0);
+    $("sidebar-toggle").classList.toggle("has-unread", hasUnread);
+}
+
+/* ---------- Grup penceresi ---------- */
+
+function setDialogMode(mode, room = null) {
+    const isCreate = mode === "create";
+    $("group-dialog-title").textContent = isCreate ? "Yeni grup" : room.name;
+    $("group-name-field").classList.toggle("hidden", !isCreate);
+    $("group-submit").classList.toggle("hidden", !isCreate);
+    $("invite-section").classList.toggle("hidden", isCreate);
+    $("leave-group").classList.toggle("hidden", isCreate);
+    $("share-invite").classList.toggle("hidden", isCreate || !navigator.share);
+    $("group-error").textContent = "";
+    if (room) $("invite-link").value = inviteLink(room);
+}
+
+function openCreateDialog() {
+    $("group-name-input").value = "";
+    setDialogMode("create");
+    $("group-dialog").showModal();
+    $("group-name-input").focus();
+}
+
+function openInviteDialog() {
+    setDialogMode("invite", state.rooms.get(state.currentRoom));
+    $("group-dialog").showModal();
+}
+
+async function handleCreateGroup(event) {
+    event.preventDefault();
+    if ($("group-submit").classList.contains("hidden")) return;
+    const name = $("group-name-input").value.trim();
+    if (!name) {
+        $("group-error").textContent = "Grup adı boş olamaz.";
+        return;
+    }
+    const button = $("group-submit");
+    button.disabled = true;
+    try {
+        const room = await createGroup(name);
+        setDialogMode("invite", room);
+    } catch (error) {
+        console.error("Grup oluşturulamadı:", error);
+        $("group-error").textContent = `Grup oluşturulamadı: ${describeError(error)}`;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function copyInviteLink() {
+    const button = $("copy-invite");
+    try {
+        await navigator.clipboard.writeText($("invite-link").value);
+        button.textContent = "Kopyalandı ✓";
+    } catch {
+        $("invite-link").select();
+        button.textContent = "Ctrl+C ile kopyala";
+    }
+    setTimeout(() => {
+        button.textContent = "Kopyala";
+    }, COPY_FEEDBACK_MS);
+}
+
+async function shareInviteLink() {
+    const room = state.rooms.get(state.currentRoom);
+    try {
+        await navigator.share({ title: `ArdLog · ${room.name}`, text: `"${room.name}" grubuna katıl:`, url: $("invite-link").value });
+    } catch (error) {
+        if (error.name !== "AbortError") console.error("Paylaşılamadı:", error);
+    }
+}
+
+async function handleLeaveGroup() {
+    const room = state.rooms.get(state.currentRoom);
+    if (!window.confirm(`"${room.name}" grubundan ayrılmak istiyor musun? Tekrar katılmak için davet linki gerekir.`)) return;
+    $("group-dialog").close();
+    await leaveGroup(room.id);
+}
+
 /* ---------- Kenar çubuğu ---------- */
 
 function setSidebarOpen(open) {
@@ -795,6 +1072,18 @@ function setupEventListeners() {
         else if ($("sidebar").classList.contains("open")) setSidebarOpen(false);
     });
 
+    $("new-group-button").addEventListener("click", openCreateDialog);
+    $("room-menu-button").addEventListener("click", openInviteDialog);
+    $("group-form").addEventListener("submit", handleCreateGroup);
+    $("copy-invite").addEventListener("click", copyInviteLink);
+    $("share-invite").addEventListener("click", shareInviteLink);
+    $("leave-group").addEventListener("click", handleLeaveGroup);
+    $("dialog-close").addEventListener("click", () => $("group-dialog").close());
+    window.addEventListener("hashchange", () => {
+        readInviteFromUrl();
+        if (state.isInChat) acceptPendingInvite();
+    });
+
     $("jump-button").addEventListener("click", () => scrollToBottom(true));
     $("message-list").addEventListener("scroll", () => {
         if (isNearBottom()) $("jump-button").classList.add("hidden");
@@ -809,3 +1098,5 @@ function setupEventListeners() {
 
 buildEffectMenu();
 setupEventListeners();
+readInviteFromUrl();
+if (state.pendingInvite) showLoginError("Gruba katılmak için önce giriş yap.");
