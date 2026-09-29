@@ -916,6 +916,232 @@ button:disabled {
     text-shadow: none;
 }
 
+/* Sohbet listesi ve gruplar */
+.header-text {
+    min-width: 0;
+}
+
+.room-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.pill-button {
+    position: relative;
+}
+
+.pill-button.has-unread::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #f472b6;
+    border: 2px solid var(--panel-solid);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.section-header h3 {
+    margin: 6px 0 10px;
+}
+
+.text-button {
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 10px;
+    color: var(--cyan);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.text-button:hover {
+    background: var(--raised-hover);
+}
+
+.room-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 22px;
+}
+
+.room-item {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 12px;
+    text-align: left;
+    transition: background 0.2s;
+}
+
+.room-item:hover {
+    background: var(--raised);
+}
+
+.room-item.active {
+    background: rgba(139, 92, 246, 0.2);
+    box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.45);
+}
+
+.room-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    background: hsl(var(--hue) 55% 40%);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.room-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+}
+
+.unread-badge {
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: #db2777;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    animation: pop-in 0.2s ease both;
+}
+
+.dialog {
+    width: min(440px, calc(100vw - 32px));
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--panel-solid);
+    color: var(--text);
+    box-shadow: var(--shadow);
+}
+
+.dialog[open] {
+    animation: pop-in 0.2s var(--ease-out) both;
+}
+
+.dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+}
+
+.dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px;
+}
+
+.dialog-body h2 {
+    font-size: 1.2rem;
+    overflow-wrap: anywhere;
+}
+
+.dialog-note {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 10px;
+}
+
+.invite-row {
+    display: flex;
+    gap: 8px;
+}
+
+.invite-row input {
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--raised);
+    font-size: 0.8rem;
+}
+
+.primary-button.compact {
+    height: 44px;
+    padding: 0 18px;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.secondary-button,
+.danger-button {
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.secondary-button {
+    background: var(--raised);
+    border: 1px solid var(--border);
+}
+
+.secondary-button:hover {
+    background: var(--raised-hover);
+}
+
+#share-invite {
+    width: 100%;
+    margin-top: 8px;
+}
+
+.danger-button {
+    color: var(--danger);
+    margin-right: auto;
+}
+
+.danger-button:hover {
+    background: rgba(251, 113, 133, 0.12);
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 @keyframes drift {
     to {
         transform: translate(8vmax, 6vmax) scale(1.15);
