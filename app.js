@@ -35,7 +35,14 @@ const EFFECTS = {
     whisper: { icon: "🤫", label: "Fısıltı" },
     glow: { icon: "✨", label: "Parıltı" },
 };
-const CONFETTI_COLORS = ["#8b5cf6", "#22d3ee", "#f472b6", "#facc15", "#34d399"];
+const CONFETTI_COLORS = ["#22e36b", "#5dff95", "#15803d", "#f5f5f5", "#a3ffc2"];
+const MATRIX_CHARS = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホ0123456789ARD";
+const MATRIX_FONT_PX = 16;
+const MATRIX_FRAME_MS = 70;
+const MATRIX_FADE = "rgba(18, 18, 18, 0.12)";
+const MATRIX_COLOR = "#22e36b";
+const MATRIX_RESET_CHANCE = 0.975;
+const MATRIX_STATIC_FRAMES = 60;
 const HEART_EMOJIS = ["❤️", "💖", "💜", "💙", "🩷"];
 const FILE_ICONS = [
     [/\.(png|jpe?g|gif|webp|heic|svg)$/i, "🖼️"],
@@ -261,7 +268,7 @@ function describeError(error) {
 
 /* ---------- Giriş ---------- */
 
-function setLoginBusy(busy, label = "Katıl") {
+function setLoginBusy(busy, label = "Bağlan") {
     const button = $("join-button");
     button.disabled = busy;
     button.classList.toggle("busy", busy);
@@ -285,6 +292,8 @@ function showChatScreen() {
     state.isInChat = true;
     $("login-screen").classList.add("hidden");
     $("chat-screen").classList.remove("hidden");
+    // Geçmiş, ekran gizliyken yüklendiği için kaydırma ancak görünür olunca işe yarar.
+    scrollToBottom();
     setLoginBusy(false);
     if (!COARSE_POINTER_QUERY.matches) $("message-input").focus();
 }
@@ -759,6 +768,51 @@ function playScreenEffect(effectId) {
     setTimeout(() => pieces.forEach((piece) => piece.remove()), EFFECT_DURATION_MS);
 }
 
+/* ---------- Matrix yağmuru ---------- */
+
+function startMatrixRain() {
+    const canvas = $("matrix-rain");
+    const context = canvas.getContext("2d");
+    let drops = [];
+
+    const resize = () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const rows = canvas.height / MATRIX_FONT_PX;
+        drops = Array.from({ length: Math.ceil(canvas.width / MATRIX_FONT_PX) }, () => Math.random() * rows);
+    };
+
+    const drawFrame = () => {
+        context.fillStyle = MATRIX_FADE;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = MATRIX_COLOR;
+        context.font = `${MATRIX_FONT_PX}px monospace`;
+        drops.forEach((row, column) => {
+            const char = MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)];
+            context.fillText(char, column * MATRIX_FONT_PX, row * MATRIX_FONT_PX);
+            const offScreen = row * MATRIX_FONT_PX > canvas.height;
+            drops[column] = offScreen && Math.random() > MATRIX_RESET_CHANCE ? 0 : row + 1;
+        });
+    };
+
+    resize();
+    window.addEventListener("resize", resize);
+    // Hareket azaltma açıksa yağmur akmaz; tek seferlik durağan bir desen çizilir.
+    if (REDUCED_MOTION_QUERY.matches) {
+        for (let frame = 0; frame < MATRIX_STATIC_FRAMES; frame += 1) drawFrame();
+        return;
+    }
+    let lastFrame = 0;
+    const loop = (time) => {
+        if (time - lastFrame >= MATRIX_FRAME_MS) {
+            drawFrame();
+            lastFrame = time;
+        }
+        requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+}
+
 /* ---------- Efekt menüsü ---------- */
 
 function buildEffectMenu() {
@@ -1121,5 +1175,6 @@ function setupEventListeners() {
 
 buildEffectMenu();
 setupEventListeners();
+startMatrixRain();
 readInviteFromUrl();
 if (state.pendingInvite) showLoginError("Gruba katılmak için önce giriş yap.");
