@@ -501,8 +501,11 @@ async function downloadFile(file, button) {
 /* ---------- Geçmiş ve kenar çubuğu ---------- */
 
 async function loadHistory() {
+    // Yükleme sürerken oda değişirse eski odanın sonucu ekrana yazılmaz.
+    const roomId = state.currentRoom;
     const rows = check(await inCurrentRoom(db.from("messages").select("*")).order("id", { ascending: false }).limit(HISTORY_LIMIT));
     const events = await Promise.all(rows.reverse().map((row) => decryptEvent(rowToEvent(row))));
+    if (roomId !== state.currentRoom) return;
     $("message-list").replaceChildren();
     state.lastAuthor = null;
     if (!events.length) showEmptyState();
@@ -511,8 +514,10 @@ async function loadHistory() {
 }
 
 async function loadFiles() {
+    const roomId = state.currentRoom;
     const rows = check(await inCurrentRoom(db.from("messages").select("*")).eq("msg_type", "file").order("id", { ascending: false }));
     const files = await Promise.all(rows.map((row) => decryptEvent(rowToEvent(row))));
+    if (roomId !== state.currentRoom) return;
     $("file-list").replaceChildren();
     state.shownFileIds.clear();
     files.forEach((file) => updateFileList(file));
