@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#07070d">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src https://tcklglwyguodaapgnddf.supabase.co wss://tcklglwyguodaapgnddf.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'">
+    <title>ArdLog</title>
+    <link rel="icon" href="logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+
+    <section id="login-screen" class="login-screen">
+        <form id="login-form" class="login-card glass" novalidate>
+            <img src="logo.svg" alt="" class="login-logo" width="64" height="64">
+            <h1 class="brand">ArdLog</h1>
+            <p class="subtitle">Arkadaşlarınla güvenle sohbet et, dosya paylaş.</p>
+            <label class="field">
+                <span>Kullanıcı adı</span>
+                <input id="username-input" type="text" maxlength="24" autocomplete="nickname" autocapitalize="off" required autofocus>
+            </label>
+            <label class="field">
+                <span>Oda şifresi</span>
+                <input id="password-input" type="password" autocomplete="current-password" required>
+            </label>
+            <button id="join-button" type="submit" class="primary-button">
+                <span class="spinner" aria-hidden="true"></span>
+                <span class="button-label">Katıl</span>
+            </button>
+            <p id="login-error" class="login-error" role="alert"></p>
+            <p class="trust-note">🔒 Uçtan uca şifreli. Oda şifren bu cihazdan hiç çıkmaz; sunucu mesajlarını ve dosyalarını okuyamaz.</p>
+        </form>
+    </section>
+
+    <section id="chat-screen" class="chat-screen hidden">
+        <main id="chat-area" class="chat-area">
+            <header class="chat-header glass">
+                <div class="header-title">
+                    <img src="logo.svg" alt="" width="36" height="36">
+                    <div>
+                        <h1 class="brand">ArdLog</h1>
+                        <p id="connection-status" class="connection-status" data-state="online">🔒 Uçtan uca şifreli</p>
+                    </div>
+                </div>
+                <button id="sidebar-toggle" class="pill-button" type="button" aria-controls="sidebar" aria-expanded="false">
+                    <span class="online-dot" aria-hidden="true"></span>
+                    <span id="user-count">0 çevrimiçi</span>
+                </button>
+            </header>
+
+            <div id="message-list" class="message-list" role="log" aria-live="polite" aria-label="Mesajlar"></div>
+            <button id="jump-button" class="jump-button hidden" type="button">Yeni mesajlar ↓</button>
+
+            <div id="effect-chip" class="effect-chip hidden">
+                <span id="effect-chip-label"></span>
+                <button id="effect-chip-clear" type="button" aria-label="Efekti kaldır">✕</button>
+            </div>
+
+            <form id="composer" class="composer glass">
+                <button id="file-button" type="button" class="icon-button" aria-label="Dosya gönder" title="Dosya gönder">📎</button>
+                <input id="file-input" type="file" multiple hidden>
+                <textarea id="message-input" rows="1" placeholder="Mesaj yaz…" maxlength="2000" aria-label="Mesaj"></textarea>
+                <div class="effect-wrapper">
+                    <button id="effect-button" type="button" class="icon-button" aria-label="Mesaj efekti seç" title="Mesaj efekti" aria-haspopup="menu" aria-expanded="false">✨</button>
+                    <div id="effect-menu" class="effect-menu hidden" role="menu" aria-label="Mesaj efektleri"></div>
+                </div>
+                <button id="send-button" type="submit" class="send-button" aria-label="Gönder">➤</button>
+            </form>
+
+            <div id="drop-overlay" class="drop-overlay hidden"><span aria-hidden="true">📂</span>Dosyayı buraya bırak</div>
+        </main>
+
+        <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+        <aside id="sidebar" class="sidebar glass" aria-label="Oda bilgileri">
+            <div class="sidebar-header">
+                <h2>Oda</h2>
+                <button id="sidebar-close" type="button" class="icon-button close-button" aria-label="Paneli kapat">✕</button>
+            </div>
+            <h3>Aktif kullanıcılar</h3>
+            <ul id="user-list" class="user-list"></ul>
+            <h3>Paylaşılan dosyalar</h3>
+            <ul id="file-list" class="file-list"></ul>
+        </aside>
+    </section>
+
+    <div id="effects-layer" class="effects-layer" aria-hidden="true"></div>
+    <script src="vendor/supabase.js"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
