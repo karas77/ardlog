@@ -70,6 +70,20 @@ const state = {
     pendingInvite: null,
 };
 
+const CLIENT_ID = readClientId();
+
+function readClientId() {
+    try {
+        const existing = localStorage.getItem("ardlog-client-id");
+        if (existing) return existing;
+        const created = crypto.randomUUID();
+        localStorage.setItem("ardlog-client-id", created);
+        return created;
+    } catch {
+        return crypto.randomUUID();
+    }
+}
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const $ = (id) => document.getElementById(id);
@@ -343,14 +357,18 @@ async function handlePresenceSync() {
     if (!state.channel) return;
     const names = Object.keys(state.channel.presenceState());
     if (!state.presenceReady) {
+        // Sayfa yenilenince eski oturum bir süre çevrimiçi görünür; aynı cihazın oturumu ismi engellemez.
         const wanted = state.username.toLocaleLowerCase("tr");
-        if (names.some((name) => name.toLocaleLowerCase("tr") === wanted)) {
+        const presence = state.channel.presenceState();
+        const takenByOther = names.some((name) => name.toLocaleLowerCase("tr") === wanted
+            && presence[name].some((meta) => meta.client_id !== CLIENT_ID));
+        if (takenByOther) {
             await leaveRoom();
             showLoginScreen("Bu kullanıcı adı şu an kullanımda.");
             return;
         }
         state.presenceReady = true;
-        await state.channel.track({ online_at: new Date().toISOString() });
+        await state.channel.track({ online_at: new Date().toISOString(), client_id: CLIENT_ID });
         showChatScreen();
     }
     state.onlineUsers = new Set(names);
